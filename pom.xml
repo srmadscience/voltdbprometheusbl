@@ -1,0 +1,58 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.voltdb.prometheusbl</groupId>
+  <artifactId>voltdbprometheusbl</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>VoltDB Prometheus BL</name>
+  <description>Allows export of business logic stats from VoltDB to Prometheus</description>
+  
+<properties>
+     <maven.compiler.source>1.8</maven.compiler.source>
+     <maven.compiler.target>1.8</maven.compiler.target>
+</properties>
+  <dependencies>
+  	<dependency>
+  		<groupId>org.voltdb</groupId>
+  		<artifactId>voltdbclient</artifactId>
+  		<version>9.2.2</version>
+  	</dependency>
+  	<!-- The client -->
+
+
+           <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient</artifactId>
+      <version>0.6.0</version>
+    </dependency>
+    <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient_hotspot</artifactId>
+      <version>0.6.0</version>
+    </dependency>
+    <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient_servlet</artifactId>
+      <version>0.6.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-servlet</artifactId>
+      <version>9.4.15.v20190215</version>
+    </dependency>
+        
+  	<dependency>
+  <groupId>javax</groupId>
+  <artifactId>javaee-api</artifactId>
+  <version>8.0.1</version>
+</dependency>
+<!-- https://mvnrepository.com/artifact/jakarta.servlet/jakarta.servlet-api -->
+<dependency>
+    <groupId>jakarta.servlet</groupId>
+    <artifactId>jakarta.servlet-api</artifactId>
+    <version>5.0.0</version>
+    <scope>provided</scope>
+</dependency>
+
+
+  </dependencies>
+</project>
