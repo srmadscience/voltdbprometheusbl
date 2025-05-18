@@ -18,7 +18,12 @@
   	</dependency>
   	<!-- The client -->
 
-
+<!-- https://mvnrepository.com/artifact/org.xerial.snappy/snappy-java -->
+<dependency>
+    <groupId>org.xerial.snappy</groupId>
+    <artifactId>snappy-java</artifactId>
+    <version>1.1.10.7</version>
+</dependency>
            <dependency>
       <groupId>io.prometheus</groupId>
       <artifactId>simpleclient</artifactId>
@@ -39,7 +44,11 @@
       <artifactId>jetty-servlet</artifactId>
       <version>9.4.15.v20190215</version>
     </dependency>
-        
+        <dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-log4j12</artifactId>
+    <version>2.0.12</version>
+</dependency>
   	<dependency>
   <groupId>javax</groupId>
   <artifactId>javaee-api</artifactId>

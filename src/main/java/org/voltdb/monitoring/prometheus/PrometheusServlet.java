@@ -24,12 +24,14 @@ package org.voltdb.monitoring.prometheus;
  */
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -43,12 +45,15 @@ import org.voltdb.client.ClientFactory;
 import org.voltdb.client.ClientResponse;
 import org.voltdb.client.NoConnectionsException;
 import org.voltdb.client.ProcCallException;
+import org.voltdb.client.ProcedureCallback;
+import org.voltdb.monitoring.ThirdPartyMetricEngineInterface;
+import org.voltdb.monitoring.VoltDBGenericMetricsAgent;
 
 import io.prometheus.client.Gauge;
 import io.prometheus.client.exporter.MetricsServlet;
 
 @SuppressWarnings("serial")
-public class PrometheusServlet extends MetricsServlet {
+public class PrometheusServlet extends MetricsServlet implements ThirdPartyMetricEngineInterface {
 
     private static final String STATVALUE = "STATVALUE";
     private static final String STATHELP = "STATHELP";
@@ -63,6 +68,7 @@ public class PrometheusServlet extends MetricsServlet {
     private static final String[] PROCEDUREPROFILE_DELTAS = { "INVOCATIONS", "ABORTS", "FAILURES" };
 
     protected static final VoltLogger logger = new VoltLogger("CONSOLE");
+    private static final String VGMA = "VGMA";
 
     /**
      * VoltDB client
@@ -134,6 +140,8 @@ public class PrometheusServlet extends MetricsServlet {
      * How often we update our DDL
      */
     final long DDL_REFRESH_INTERVAL_SECONDS = 120;
+
+    private VoltDBGenericMetricsAgent vgma = null;
 
     public PrometheusServlet(TopLevelServletData data) {
         super();
@@ -221,6 +229,7 @@ public class PrometheusServlet extends MetricsServlet {
                 if (client == null) {
                     data.lasterror = "PrometheusServlet.doGet: Unable to obtain client";
                     logger.error(data.lasterror);
+                    System.exit(1);
                 }
 
             } catch (Exception e) {
@@ -230,6 +239,10 @@ public class PrometheusServlet extends MetricsServlet {
         }
 
         if (client != null) {
+
+            if (vgma == null) {
+                vgma = new VoltDBGenericMetricsAgent(this, 0);
+            }
 
             fillInZeroReadings();
 
@@ -263,6 +276,10 @@ public class PrometheusServlet extends MetricsServlet {
                     } else if (procedureName.equalsIgnoreCase(SNAPSHOTSTATS)) {
 
                         getSnapshotStats();
+
+                    } else if (procedureName.equalsIgnoreCase(VGMA)) {
+
+                        vgma.gatherMetrics();
 
                     } else {
 
@@ -339,9 +356,8 @@ public class PrometheusServlet extends MetricsServlet {
 
                 ProcedureDetailResult newResult = new ProcedureDetailResult(cr.getResults()[0].getString("PROCEDURE"),
                         cr.getResults()[0].getString("STATEMENT"), cr.getResults()[0].getLong("PARTITION_ID"),
-                        cr.getResults()[0].getLong("INVOCATIONS"), cr.getResults()[0].getLong("AVG_EXECUTION_TIME")
-                        , cr.getResults()[0].getLong("MAX_EXECUTION_TIME"),
-                        kFactor);
+                        cr.getResults()[0].getLong("INVOCATIONS"), cr.getResults()[0].getLong("AVG_EXECUTION_TIME"),
+                        cr.getResults()[0].getLong("MAX_EXECUTION_TIME"), kFactor);
 
                 if (!results.containsKey(newResult.getName())) {
                     results.put(newResult.getName(), newResult);
@@ -755,25 +771,22 @@ public class PrometheusServlet extends MetricsServlet {
             }
 
             for (int voltTableId = 0; voltTableId < cr.getResults().length; voltTableId++) {
-                
-                
+
                 ArrayList<String> statLabelsList = new ArrayList<String>();
-                
-                for (int i=0; i < cr.getResults()[voltTableId].getColumnCount(); i++) {
-                    String possibleLabelName =  cr.getResults()[voltTableId].getColumnName(i);
-                    if (possibleLabelName.equalsIgnoreCase(STATNAME)  || possibleLabelName.equalsIgnoreCase(STATHELP) || possibleLabelName.equalsIgnoreCase(STATVALUE) ) {
+
+                for (int i = 0; i < cr.getResults()[voltTableId].getColumnCount(); i++) {
+                    String possibleLabelName = cr.getResults()[voltTableId].getColumnName(i);
+                    if (possibleLabelName.equalsIgnoreCase(STATNAME) || possibleLabelName.equalsIgnoreCase(STATHELP)
+                            || possibleLabelName.equalsIgnoreCase(STATVALUE)) {
                         // ignore it
                     } else {
                         statLabelsList.add(possibleLabelName);
                     }
                 }
-                
-                
 
                 String[] statLabels = new String[statLabelsList.size()];
                 statLabels = statLabelsList.toArray(statLabels);
 
-        
                 while (cr.getResults()[voltTableId].advanceRow()) {
 
                     try {
@@ -781,27 +794,24 @@ public class PrometheusServlet extends MetricsServlet {
                         String statHelp = cr.getResults()[voltTableId].getString(STATHELP);
                         String[] statLabelValues = new String[statLabels.length];
 
+                        for (int i = 0; i < statLabels.length; i++) {
 
-                      for (int i = 0; i <  statLabels.length; i++) {
-                            
-                            
                             // Stat labels can actually be numbers...
-                            VoltType statLabelType = cr.getResults()[voltTableId].getColumnType( cr.getResults()[voltTableId].getColumnIndex(statLabels[i]));
+                            VoltType statLabelType = cr.getResults()[voltTableId]
+                                    .getColumnType(cr.getResults()[voltTableId].getColumnIndex(statLabels[i]));
 
-                           
                             if (statLabelType == VoltType.STRING) {
                                 statLabelValues[i] = cr.getResults()[voltTableId].getString(statLabels[i]);
-                            } else  if (statLabelType == VoltType.BIGINT || statLabelType == VoltType.INTEGER
-                                    || statLabelType == VoltType.SMALLINT || statLabelType == VoltType.TINYINT)  {
+                            } else if (statLabelType == VoltType.BIGINT || statLabelType == VoltType.INTEGER
+                                    || statLabelType == VoltType.SMALLINT || statLabelType == VoltType.TINYINT) {
                                 statLabelValues[i] = cr.getResults()[voltTableId].getLong(statLabels[i]) + "";
                             } else {
                                 statLabelValues[i] = cr.getResults()[voltTableId].getDouble(statLabels[i]) + "";
                             }
 
                         }
-                      
-                      
-                      double statValue = VoltType.NULL_FLOAT;
+
+                        double statValue = VoltType.NULL_FLOAT;
 
                         int columnLocation = cr.getResults()[voltTableId].getColumnIndex(STATVALUE);
                         VoltType statNumberType = cr.getResults()[voltTableId].getColumnType(columnLocation);
@@ -809,6 +819,9 @@ public class PrometheusServlet extends MetricsServlet {
                         if (statNumberType == VoltType.BIGINT || statNumberType == VoltType.INTEGER
                                 || statNumberType == VoltType.SMALLINT || statNumberType == VoltType.TINYINT) {
                             statValue = cr.getResults()[voltTableId].getLong(STATVALUE);
+                        } else if (statNumberType  == VoltType.DECIMAL) {
+                            BigDecimal aBigDecimal = cr.getResults()[voltTableId].getDecimalAsBigDecimal(STATVALUE);
+                            statValue = aBigDecimal.doubleValue();
                         } else {
                             statValue = cr.getResults()[voltTableId].getDouble(STATVALUE);
                         }
@@ -848,18 +861,14 @@ public class PrometheusServlet extends MetricsServlet {
             }
 
             for (int voltTableId = 0; voltTableId < cr.getResults().length; voltTableId++) {
-                
-                
+
                 ArrayList<String> statLabelsList = new ArrayList<String>();
-                
-                
 
                 String[] statLabels = new String[cr.getResults()[voltTableId].getColumnCount() - 3];
 
                 for (int i = 2; i < cr.getResults()[voltTableId].getColumnCount() - 1; i++) {
                     statLabels[i - 2] = cr.getResults()[voltTableId].getColumnName(i);
-                    
-                   
+
                 }
 
                 while (cr.getResults()[voltTableId].advanceRow()) {
@@ -869,25 +878,23 @@ public class PrometheusServlet extends MetricsServlet {
                         String statHelp = cr.getResults()[voltTableId].getString(STATHELP);
                         String[] statLabelValues = new String[cr.getResults()[voltTableId].getColumnCount() - 3];
 
+                        for (int j = 2; j < cr.getResults()[voltTableId].getColumnCount() - 1; j++) {
 
-                      for (int j = 2; j < cr.getResults()[voltTableId].getColumnCount() - 1; j++) {
-                            
-                            
                             // Stat labels can actually be numbers...
                             VoltType statLabelType = cr.getResults()[voltTableId].getColumnType(j);
 
-                            statLabelValues[j - 2]  = cr.getResults()[voltTableId].getColumnName(j);
+                            statLabelValues[j - 2] = cr.getResults()[voltTableId].getColumnName(j);
                             if (statLabelType == VoltType.STRING) {
                                 statLabelValues[j - 2] = cr.getResults()[voltTableId].getString(j);
-                            } else  if (statLabelType == VoltType.BIGINT || statLabelType == VoltType.INTEGER
-                                    || statLabelType == VoltType.SMALLINT || statLabelType == VoltType.TINYINT)  {
+                            } else if (statLabelType == VoltType.BIGINT || statLabelType == VoltType.INTEGER
+                                    || statLabelType == VoltType.SMALLINT || statLabelType == VoltType.TINYINT) {
                                 statLabelValues[j - 2] = cr.getResults()[voltTableId].getLong(j) + "";
                             } else {
                                 statLabelValues[j - 2] = cr.getResults()[voltTableId].getDouble(j) + "";
                             }
 
                         }
-                      double statValue = VoltType.NULL_FLOAT;
+                        double statValue = VoltType.NULL_FLOAT;
 
                         int columnLocation = cr.getResults()[voltTableId].getColumnIndex(STATVALUE);
                         VoltType statNumberType = cr.getResults()[voltTableId].getColumnType(columnLocation);
@@ -1147,7 +1154,7 @@ public class PrometheusServlet extends MetricsServlet {
             if (client != null) {
                 logger.error("Disconnected");
                 client = null;
-                ;
+
             }
         }
 
@@ -1291,6 +1298,63 @@ public class PrometheusServlet extends MetricsServlet {
             client = null;
         }
 
+    }
+
+    /*
+     * Extend this class for processing results and reporting to newrelic.
+     */
+    private abstract class AbstractStatsProcedureCallback implements ProcedureCallback {
+
+        CountDownLatch cbwaiters;
+        String namespace;
+        int callCount = 0;
+        HashMap<String, String> helpText = new HashMap<String, String>();
+        HashMap<String, String> m_labelText = new HashMap<String, String>();
+
+        public AbstractStatsProcedureCallback(CountDownLatch cbwaiters, String namespace,
+                HashMap<String, String> helpText, HashMap<String, String> m_labelText) {
+            this.cbwaiters = cbwaiters;
+            this.namespace = namespace;
+            this.helpText = helpText;
+            this.m_labelText = m_labelText;
+        }
+
+    }
+
+    @Override
+    public String getName() {
+        return "VGMA";
+    }
+
+    @Override
+    public String getServers() {
+        return data.serverList;
+    }
+
+    @Override
+    public String getUser() {
+        // TODO Auto-generated method stub
+        return data.user;
+    }
+
+    @Override
+    public String getPassword() {
+        return data.password;
+    }
+
+    @Override
+    public int getPort() {
+        return data.port;
+    }
+
+    @Override
+    public void reportMetric(String metricName, String units, Number value) {
+
+        String[] labelNames = { "label_name" };
+        String[] labelValues = { units };
+        String help = "help";
+
+        reportMetric(metricName, labelNames, labelValues, value, help);
     }
 
 }
